@@ -1,20 +1,22 @@
 from subprocess import run
-from os import chmod
+from os import chmod, makedirs, path
 from collections import deque
+from sys import argv
+from json import load
 
 '''
 TODO
-Make sure all portions of the stack are separated in their respective directories
+Get target_dir argument working for all directory possibilities
 '''
 
-config = {
-    # "frontend": {
-    #     "react": {
-    #         "packages": [
-    #             "nodemon",
-    #         ]
-    #     }
-    # },
+example_config = {
+    "frontend": {
+        "react": {
+            "packages": [
+                "nodemon",
+            ]
+        }
+    },
     "backend": {
         "flask": {
             "packages": [
@@ -60,28 +62,30 @@ lexicon = {
         }
     },
     "web_server": {
-        "nginx"
+        "nginx": {
+            "server_name",
+            "proxy_pass",
+        }
     }
 }
 
 commands = {
     "react": {
-        "init": "yarn create react-app client && cd client",
+        "init": "yarn create react-app frontend && cd frontend",
         "packages": "yarn add ",
     },
     "flask": {
-        "init": "python3 -m venv .venv && . .venv/bin/activate && pip3 install flask",
+        "init": "python3 -m venv ./backend/.venv && ./backend .venv/bin/activate && pip3 install flask && pip3 freeze > requirements.txt",
         "packages": "pip3 install ",
-        "files": "",
     }
 }
 
 files = {
     "flask": {
-        "init": {
+        "init": { # add name
             "import": ["from flask import Flask\n"],
-            "setup": [
-                "app = Flask(__name__)\n",
+            "core": [
+                "\napp = Flask(__name__)\n",
                 "\n",
                 "@app.route('/')\n",
                 "def hello_world():\n",
@@ -96,7 +100,7 @@ files = {
                         "min_index": 1
                     }
                 ],
-                "setup": [
+                "core": [
                     {
                         "line": "CORS(app)\n",
                         "min_index": 1
@@ -105,6 +109,12 @@ files = {
             }
         }
     }
+}
+
+# somehow incorporate core files for each tool
+tool_dir = {
+    "react": "frontend",
+    "flask": "backend/app.py",
 }
 
 def parse(config):
@@ -141,31 +151,38 @@ def parse(config):
 
     return (scripts, packages)
 
-def make_sh(scripts):
+def make_sh(scripts, target_dir):
     paths = []
+
+    try:
+        makedirs(f"{target_dir}/shell_scripts")
+    except Exception as e:
+        print(e)
+
     for tool in scripts.keys():
         fname = f'{tool}.sh'
-        paths += ["./" + fname]
-        f = open(fname, "w")
+        paths += [f'{target_dir}/shell_scripts/{fname}']
+        f = open(f'{target_dir}/shell_scripts/{fname}', "w")
         f.write("#!/bin/sh\n")
         for script in scripts[tool]:
             f.write(script)
             f.write("\n")
         f.close()
-        chmod("./" + fname, 0o777)
+        chmod(f'{target_dir}/shell_scripts/{fname}', 0o777)
+
     return paths
 
 def exe_sh(paths):
     for path in paths:
         run(path)
 
-def make_files(tool, target_packages):
+# error check target directory
+def make_files(tool, target_packages, target_dir):
     if tool not in files:
         # raise Exception(f'ERROR: \'{tool}\' not recognized for file creation)')
         return
     
     source = files[tool]
-    source.keys()
     line_map = {}
 
     # this is where applicable package lines are selected
@@ -218,15 +235,37 @@ def make_files(tool, target_packages):
         for line in current_code:
             lines.append(line)
 
-    f = open("app.py", "w")
+    # add core files for each tool
+    fpath = f'{tool_dir[tool]}'
+
+    f = open(f'{target_dir}/{fpath}', "w")
     for line in lines:
         f.write(line)
     f.close()
 
-if __name__ == '__main__':
-    scripts, packages = parse(config)
-    paths = make_sh(scripts)
-    print(paths)
+def main():
+    if len(argv) != 5:
+        print("Usage")
+        return
+    
+    f = argv[1]
+    d = argv[3]
+
+    if f != "-f" or d != "-d":
+        print("Usage 2")
+        return
+    
+    config_file_path = argv[2]
+    target_dir = argv[4]
+
+    with open(config_file_path) as config_file:
+        cfg = load(config_file)
+    
+    scripts, packages = parse(cfg)
+    paths = make_sh(scripts, target_dir)
     exe_sh(paths)
-    for package_name, target_packages in packages.items():
-        make_files(package_name, target_packages)
+    for tool, target_packages in packages.items():
+        make_files(tool, target_packages, target_dir)
+    
+if __name__ == '__main__':
+    main()
